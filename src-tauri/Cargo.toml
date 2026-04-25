@@ -1,0 +1,32 @@
+[package]
+name = "whispr_clone"
+version = "0.1.0"
+description = "Local-first dictation utility"
+authors = ["Whispr Clone contributors"]
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "whispr_clone_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+anyhow = "1.0"
+cpal = "0.15"
+dirs = "5.0"
+hound = "3.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rfd = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.0", features = ["tray-icon", "image-png"] }
+tauri-plugin-clipboard-manager = "2.0"
+tauri-plugin-dialog = "2.0"
+tauri-plugin-global-shortcut = "2.0"
+tauri-plugin-os = "2.0"
+thiserror = "2.0"
+tokio = { version = "1.41", features = ["macros", "process", "rt-multi-thread", "time"] }
+uuid = { version = "1.11", features = ["v4"] }
