@@ -31,7 +31,8 @@
     "active": true,
     "targets": ["dmg", "msi", "nsis"],
     "icon": [
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.ico"
     ],
     "category": "Productivity",
     "shortDescription": "Local-first dictation utility",
