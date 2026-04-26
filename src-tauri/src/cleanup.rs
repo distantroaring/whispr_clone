@@ -76,9 +76,19 @@ pub async fn clean_with_debug(
     if config.language == "bn" {
         let raw_has_bengali = raw.chars().any(is_bengali_char);
         let raw_has_arabic = raw.chars().any(is_arabic_char);
+        let raw_looks_english = looks_like_english_sentence(&raw);
         match clean_bangla_text(config, transcript).await {
             Ok(cleaned) => {
                 let cleaned = cleaned.trim().to_string();
+                if raw_looks_english && !raw_has_bengali {
+                    return Ok(debug_result(
+                        &raw,
+                        &cleaned,
+                        &raw,
+                        false,
+                        Some("Raw Whisper text looks English; Bangla cleanup translation was rejected"),
+                    ));
+                }
                 if raw_has_arabic && !raw_has_bengali {
                     let final_text = if should_use_cleaned_text(config, &cleaned) {
                         cleaned.as_str()
@@ -217,7 +227,7 @@ async fn clean_text(config: &AppConfig, transcript: &str) -> anyhow::Result<Stri
 async fn clean_bangla_text(config: &AppConfig, text: &str) -> anyhow::Result<String> {
     let url = format!("{}/api/generate", config.ollama_url.trim_end_matches('/'));
     let prompt = format!(
-        "You are correcting Bangla dictation.\n\nTask:\nConvert the input into correct, natural Bengali script.\n\nRules:\n- The input is Bangla speech recognized imperfectly by Whisper.\n- It may appear in Romanized Bangla, Bengali script with mistakes, Arabic/Urdu script, or mixed script.\n- Preserve the speaker's intended meaning.\n- Fix obvious ASR mistakes, word boundaries, punctuation, and spelling.\n- Use modern standard Bengali spelling.\n- Keep common English technical words only when the speaker clearly used English, but write Bangla words in Bengali script.\n- Do not translate the whole sentence into English.\n- Do not add new information.\n- Do not replace unclear text with a common Bangla phrase.\n- Do not copy or imitate the examples unless the input clearly says the same thing.\n- If the input is too unclear to recover, return exactly: [unclear]\n- Return only the corrected Bengali text or [unclear].\n\nExamples:\nami bhalo achi -> আমি ভালো আছি।\najke ami office e jabo -> আজকে আমি অফিসে যাবো।\namar nam rafi -> আমার নাম রাফি।\nami ekta email likhte chai -> আমি একটা ইমেইল লিখতে চাই।\n\nInput:\n{text}\n\nCorrect Bengali:"
+        "You are correcting Bangla dictation.\n\nTask:\nConvert Bangla speech into correct, natural Bengali script.\n\nRules:\n- The input is intended to be Bangla speech recognized imperfectly by Whisper.\n- It may appear in Romanized Bangla, Bengali script with mistakes, Arabic/Urdu script, or mixed script.\n- Preserve the speaker's intended meaning.\n- Fix obvious ASR mistakes, word boundaries, punctuation, and spelling.\n- Use modern standard Bengali spelling.\n- Keep common English technical words only when the speaker clearly used English, but write Bangla words in Bengali script.\n- If the input is clear English, return the English text unchanged. Do not translate English into Bangla.\n- Do not add new information.\n- Do not replace unclear text with a common Bangla phrase.\n- Do not copy or imitate the examples unless the input clearly says the same thing.\n- If the input is too unclear to recover, return exactly: [unclear]\n- Return only the corrected text or [unclear].\n\nExamples:\nami bhalo achi -> আমি ভালো আছি।\najke ami office e jabo -> আজকে আমি অফিসে যাবো।\namar nam rafi -> আমার নাম রাফি।\nami ekta email likhte chai -> আমি একটা ইমেইল লিখতে চাই।\nYou can hear me -> You can hear me\n\nInput:\n{text}\n\nCorrect text:"
     );
 
     let response = Client::new()
@@ -307,4 +317,58 @@ fn is_arabic_char(char: char) -> bool {
 
 fn is_latin_char(char: char) -> bool {
     char.is_ascii_alphabetic()
+}
+
+fn looks_like_english_sentence(text: &str) -> bool {
+    let words: Vec<String> = text
+        .split(|char: char| !char.is_ascii_alphabetic())
+        .filter(|word| !word.is_empty())
+        .map(|word| word.to_ascii_lowercase())
+        .collect();
+
+    if words.len() < 3 {
+        return false;
+    }
+
+    let english_hits = words
+        .iter()
+        .filter(|word| {
+            matches!(
+                word.as_str(),
+                "a" | "an"
+                    | "and"
+                    | "are"
+                    | "be"
+                    | "can"
+                    | "could"
+                    | "do"
+                    | "for"
+                    | "from"
+                    | "have"
+                    | "hear"
+                    | "hello"
+                    | "i"
+                    | "in"
+                    | "is"
+                    | "it"
+                    | "me"
+                    | "my"
+                    | "of"
+                    | "on"
+                    | "please"
+                    | "that"
+                    | "the"
+                    | "this"
+                    | "to"
+                    | "was"
+                    | "we"
+                    | "what"
+                    | "with"
+                    | "you"
+                    | "your"
+            )
+        })
+        .count();
+
+    english_hits >= 2
 }
