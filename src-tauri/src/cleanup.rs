@@ -74,9 +74,20 @@ pub async fn clean_with_debug(
     }
 
     if config.language == "bn" {
+        let raw_has_bengali = raw.chars().any(is_bengali_char);
+        let raw_has_arabic = raw.chars().any(is_arabic_char);
         match clean_bangla_text(config, transcript).await {
             Ok(cleaned) => {
                 let cleaned = cleaned.trim().to_string();
+                if raw_has_arabic && !raw_has_bengali {
+                    return Ok(debug_result(
+                        &raw,
+                        &cleaned,
+                        "",
+                        false,
+                        Some("Whisper returned Arabic/Urdu script for Bangla speech; rejected cleanup to avoid hallucinated paste"),
+                    ));
+                }
                 if should_use_cleaned_text(config, &cleaned) {
                     return Ok(debug_result(&raw, &cleaned, &cleaned, true, None));
                 }
@@ -201,7 +212,7 @@ async fn clean_text(config: &AppConfig, transcript: &str) -> anyhow::Result<Stri
 async fn clean_bangla_text(config: &AppConfig, text: &str) -> anyhow::Result<String> {
     let url = format!("{}/api/generate", config.ollama_url.trim_end_matches('/'));
     let prompt = format!(
-        "You are correcting Bangla dictation.\n\nTask:\nConvert the input into correct, natural Bengali script.\n\nRules:\n- The input is Bangla speech recognized imperfectly by Whisper.\n- It may appear in Romanized Bangla, Bengali script with mistakes, Arabic/Urdu script, or mixed script.\n- Preserve the speaker's intended meaning.\n- Fix obvious ASR mistakes, word boundaries, punctuation, and spelling.\n- Use modern standard Bengali spelling.\n- Keep common English technical words only when the speaker clearly used English, but write Bangla words in Bengali script.\n- Do not translate the whole sentence into English.\n- Do not add new information.\n- Return only the corrected Bengali text.\n\nExamples:\nami bhalo achi -> আমি ভালো আছি।\napni kemon achen -> আপনি কেমন আছেন?\najke ami office e jabo -> আজকে আমি অফিসে যাবো।\namar nam rafi -> আমার নাম রাফি।\nami ekta email likhte chai -> আমি একটা ইমেইল লিখতে চাই।\n\nInput:\n{text}\n\nCorrect Bengali:"
+        "You are correcting Bangla dictation.\n\nTask:\nConvert the input into correct, natural Bengali script.\n\nRules:\n- The input is Bangla speech recognized imperfectly by Whisper.\n- It may appear in Romanized Bangla, Bengali script with mistakes, Arabic/Urdu script, or mixed script.\n- Preserve the speaker's intended meaning.\n- Fix obvious ASR mistakes, word boundaries, punctuation, and spelling.\n- Use modern standard Bengali spelling.\n- Keep common English technical words only when the speaker clearly used English, but write Bangla words in Bengali script.\n- Do not translate the whole sentence into English.\n- Do not add new information.\n- Do not replace unclear text with a common Bangla phrase.\n- Do not copy or imitate the examples unless the input clearly says the same thing.\n- If the input is too unclear to recover, return exactly: [unclear]\n- Return only the corrected Bengali text or [unclear].\n\nExamples:\nami bhalo achi -> আমি ভালো আছি।\najke ami office e jabo -> আজকে আমি অফিসে যাবো।\namar nam rafi -> আমার নাম রাফি।\nami ekta email likhte chai -> আমি একটা ইমেইল লিখতে চাই।\n\nInput:\n{text}\n\nCorrect Bengali:"
     );
 
     let response = Client::new()
@@ -254,6 +265,9 @@ async fn convert_to_bengali_script(config: &AppConfig, text: &str) -> anyhow::Re
 fn should_use_cleaned_text(config: &AppConfig, cleaned: &str) -> bool {
     let cleaned = cleaned.trim();
     if cleaned.is_empty() {
+        return false;
+    }
+    if cleaned.eq_ignore_ascii_case("[unclear]") {
         return false;
     }
 

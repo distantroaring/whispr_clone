@@ -51,7 +51,7 @@ pub async fn transcribe_file(config: &AppConfig, audio_path: PathBuf) -> anyhow:
 
 fn whisper_language(language: &str) -> &str {
     match language {
-        "bn" => "bengali",
+        "bn" => "bn",
         value => value,
     }
 }
