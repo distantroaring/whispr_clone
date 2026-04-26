@@ -128,6 +128,30 @@ fn model_catalog() -> Vec<WhisperModel> {
             installed: false,
             recommended: false,
         },
+        WhisperModel {
+            id: "large-v3-turbo-q5".to_string(),
+            name: "Large v3 Turbo Q5".to_string(),
+            description:
+                "Stronger multilingual/Bangla option; practical upgrade for Apple Silicon."
+                    .to_string(),
+            file_name: "ggml-large-v3-turbo-q5_0.bin".to_string(),
+            download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
+                .to_string(),
+            installed: false,
+            recommended: false,
+        },
+        WhisperModel {
+            id: "large-v3".to_string(),
+            name: "Large v3".to_string(),
+            description: "Highest quality option, but very large and slow on CPU-only Windows."
+                .to_string(),
+            file_name: "ggml-large-v3.bin".to_string(),
+            download_url:
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"
+                    .to_string(),
+            installed: false,
+            recommended: false,
+        },
     ]
 }
 
