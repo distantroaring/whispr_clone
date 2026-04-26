@@ -80,12 +80,17 @@ pub async fn clean_with_debug(
             Ok(cleaned) => {
                 let cleaned = cleaned.trim().to_string();
                 if raw_has_arabic && !raw_has_bengali {
+                    let final_text = if should_use_cleaned_text(config, &cleaned) {
+                        cleaned.as_str()
+                    } else {
+                        &raw
+                    };
                     return Ok(debug_result(
                         &raw,
                         &cleaned,
-                        "",
-                        false,
-                        Some("Whisper returned Arabic/Urdu script for Bangla speech; rejected cleanup to avoid hallucinated paste"),
+                        final_text,
+                        should_use_cleaned_text(config, &cleaned),
+                        Some("Low confidence: Whisper returned Arabic/Urdu script while Bangla was selected"),
                     ));
                 }
                 if should_use_cleaned_text(config, &cleaned) {
