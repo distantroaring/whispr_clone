@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub models_dir: String,
     pub selected_model_id: String,
     pub cleanup_enabled: bool,
+    #[serde(default)]
+    pub bangla_debug_enabled: bool,
     pub ollama_url: String,
     pub ollama_model: String,
     pub language: String,
@@ -28,6 +30,7 @@ impl AppConfig {
             models_dir: models_dir.to_string_lossy().to_string(),
             selected_model_id: crate::models::recommended_model_id(),
             cleanup_enabled: true,
+            bangla_debug_enabled: false,
             ollama_url: "http://localhost:11434".to_string(),
             ollama_model: "llama3.2:3b".to_string(),
             language: "auto".to_string(),

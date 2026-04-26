@@ -10,11 +10,12 @@ use std::sync::Arc;
 
 use config::AppConfig;
 use dictation::DictationController;
+use serde::Serialize;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, State,
+    Emitter, Manager, State,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -22,6 +23,13 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 pub struct AppState {
     config: Arc<config::ConfigStore>,
     dictation: Arc<DictationController>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranscriptionOutput {
+    text: String,
+    debug: cleanup::TranscriptionDebug,
 }
 
 #[tauri::command]
@@ -104,7 +112,7 @@ async fn transcribe_audio_file(
     path: String,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<TranscriptionOutput, String> {
     let config = state
         .inner()
         .config
@@ -113,11 +121,14 @@ async fn transcribe_audio_file(
     let raw = transcription::transcribe_file(&config, path.into())
         .await
         .map_err(|error| error.to_string())?;
-    let text = cleanup::clean_or_fallback(&config, &raw)
+    let debug = cleanup::clean_with_debug(&config, &raw)
         .await
         .map_err(|error| error.to_string())?;
-    paste::write_clipboard(&app, &text).map_err(|error| error.to_string())?;
-    Ok(text)
+    paste::write_clipboard(&app, &debug.final_text).map_err(|error| error.to_string())?;
+    Ok(TranscriptionOutput {
+        text: debug.final_text.clone(),
+        debug,
+    })
 }
 
 #[tauri::command]
@@ -131,7 +142,10 @@ async fn start_dictation(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn stop_dictation(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+async fn stop_dictation(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Option<cleanup::TranscriptionDebug>, String> {
     let config = state
         .inner()
         .config
@@ -168,10 +182,15 @@ pub fn run() {
                         ShortcutState::Released => {
                             tauri::async_runtime::spawn(async move {
                                 if let Ok(config) = state.config.load() {
-                                    let _ = state
+                                    if let Ok(Some(debug)) = state
                                         .dictation
                                         .stop_transcribe_clean_and_paste(&config, &app_handle)
-                                        .await;
+                                        .await
+                                    {
+                                        if config.language == "bn" && config.bangla_debug_enabled {
+                                            let _ = app_handle.emit("bangla-debug", &debug);
+                                        }
+                                    }
                                 }
                             });
                         }

@@ -11,6 +11,16 @@ pub struct OllamaStatus {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptionDebug {
+    pub raw: String,
+    pub cleaned: String,
+    pub final_text: String,
+    pub cleanup_used: bool,
+    pub fallback_reason: Option<String>,
+}
+
 #[derive(Serialize)]
 struct GenerateRequest<'a> {
     model: &'a str,
@@ -43,36 +53,117 @@ pub async fn check_ollama(config: &AppConfig) -> anyhow::Result<OllamaStatus> {
     }
 }
 
-pub async fn clean_or_fallback(config: &AppConfig, transcript: &str) -> anyhow::Result<String> {
-    if !config.cleanup_enabled || transcript.trim().is_empty() {
-        return Ok(transcript.trim().to_string());
+pub async fn clean_with_debug(
+    config: &AppConfig,
+    transcript: &str,
+) -> anyhow::Result<TranscriptionDebug> {
+    let raw = transcript.trim().to_string();
+
+    if raw.is_empty() {
+        return Ok(debug_result(&raw, "", "", false, Some("Empty transcript")));
+    }
+
+    if !config.cleanup_enabled {
+        return Ok(debug_result(
+            &raw,
+            "",
+            &raw,
+            false,
+            Some("AI cleanup disabled"),
+        ));
     }
 
     if config.language == "bn" {
-        if let Ok(cleaned) = clean_bangla_text(config, transcript).await {
-            if should_use_cleaned_text(config, &cleaned) {
-                return Ok(cleaned.trim().to_string());
+        match clean_bangla_text(config, transcript).await {
+            Ok(cleaned) => {
+                let cleaned = cleaned.trim().to_string();
+                if should_use_cleaned_text(config, &cleaned) {
+                    return Ok(debug_result(&raw, &cleaned, &cleaned, true, None));
+                }
+                return Ok(debug_result(
+                    &raw,
+                    &cleaned,
+                    &raw,
+                    false,
+                    Some("Bangla cleanup did not produce Bengali script"),
+                ));
+            }
+            Err(error) => {
+                return Ok(debug_result(
+                    &raw,
+                    "",
+                    &raw,
+                    false,
+                    Some(&format!("Bangla cleanup failed: {error}")),
+                ));
             }
         }
-        return Ok(transcript.trim().to_string());
     }
 
     match clean_text(config, transcript).await {
-        Ok(cleaned) if should_use_cleaned_text(config, &cleaned) => Ok(cleaned.trim().to_string()),
+        Ok(cleaned) if should_use_cleaned_text(config, &cleaned) => {
+            let cleaned = cleaned.trim().to_string();
+            Ok(debug_result(&raw, &cleaned, &cleaned, true, None))
+        }
         Ok(cleaned) if config.language == "bn" && needs_bengali_script_conversion(&cleaned) => {
             match convert_to_bengali_script(config, &cleaned).await {
-                Ok(converted) if should_use_cleaned_text(config, &converted) => {
-                    Ok(converted.trim().to_string())
-                }
-                _ => Ok(transcript.trim().to_string()),
+                Ok(converted) if should_use_cleaned_text(config, &converted) => Ok(debug_result(
+                    &raw,
+                    &cleaned,
+                    converted.trim(),
+                    true,
+                    Some("Converted cleaned text to Bengali script"),
+                )),
+                _ => Ok(debug_result(
+                    &raw,
+                    &cleaned,
+                    &raw,
+                    false,
+                    Some("Bengali script conversion failed"),
+                )),
             }
         }
-        _ => {
+        Ok(cleaned) => {
             if config.language == "bn" && needs_bengali_script_conversion(transcript) {
-                return Ok(transcript.trim().to_string());
+                return Ok(debug_result(
+                    &raw,
+                    &cleaned,
+                    &raw,
+                    false,
+                    Some("Raw Bangla transcript needs Bengali script conversion"),
+                ));
             }
-            Ok(transcript.trim().to_string())
+            Ok(debug_result(
+                &raw,
+                &cleaned,
+                &raw,
+                false,
+                Some("Cleanup result was rejected"),
+            ))
         }
+        Err(error) => Ok(debug_result(
+            &raw,
+            "",
+            &raw,
+            false,
+            Some(&format!("Cleanup failed: {error}")),
+        )),
+    }
+}
+
+fn debug_result(
+    raw: &str,
+    cleaned: &str,
+    final_text: &str,
+    cleanup_used: bool,
+    fallback_reason: Option<&str>,
+) -> TranscriptionDebug {
+    TranscriptionDebug {
+        raw: raw.to_string(),
+        cleaned: cleaned.to_string(),
+        final_text: final_text.to_string(),
+        cleanup_used,
+        fallback_reason: fallback_reason.map(ToString::to_string),
     }
 }
 

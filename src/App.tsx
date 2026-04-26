@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
+  Bug,
   Check,
   Clipboard,
   Download,
@@ -12,13 +14,14 @@ import {
   Upload,
   Wand2,
 } from "lucide-react";
-import { api, AppConfig, OllamaStatus, WhisperModel } from "./lib/api";
+import { api, AppConfig, BanglaDebug, OllamaStatus, WhisperModel } from "./lib/api";
 
 const defaultConfig: AppConfig = {
   whisperBinaryPath: "whisper-cli",
   modelsDir: "",
   selectedModelId: "base",
   cleanupEnabled: true,
+  banglaDebugEnabled: false,
   ollamaUrl: "http://localhost:11434",
   ollamaModel: "llama3.2:3b",
   language: "auto",
@@ -32,6 +35,7 @@ function App() {
   const [message, setMessage] = useState("Ready");
   const [dictating, setDictating] = useState(false);
   const [fileTranscript, setFileTranscript] = useState("");
+  const [banglaDebug, setBanglaDebug] = useState<BanglaDebug | null>(null);
 
   const selectedModel = useMemo(
     () => models.find((model) => model.id === config.selectedModelId),
@@ -40,6 +44,19 @@ function App() {
 
   useEffect(() => {
     void refresh();
+  }, []);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    void listen<BanglaDebug>("bangla-debug", (event) => {
+      setBanglaDebug(event.payload);
+    }).then((nextUnsubscribe) => {
+      unsubscribe = nextUnsubscribe;
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
   }, []);
 
   async function refresh() {
@@ -100,10 +117,14 @@ function App() {
 
     setBusy("file");
     setFileTranscript("");
+    setBanglaDebug(null);
     setMessage("Transcribing file");
     try {
-      const transcript = await api.transcribeAudioFile(selected);
-      setFileTranscript(transcript);
+      const output = await api.transcribeAudioFile(selected);
+      setFileTranscript(output.text);
+      if (config.language === "bn" && config.banglaDebugEnabled) {
+        setBanglaDebug(output.debug);
+      }
       setMessage("Copied to clipboard");
     } catch (error) {
       setMessage(String(error));
@@ -117,7 +138,10 @@ function App() {
       if (dictating) {
         setBusy("dictation");
         setMessage("Transcribing");
-        await api.stopDictation();
+        const debug = await api.stopDictation();
+        if (debug && config.language === "bn" && config.banglaDebugEnabled) {
+          setBanglaDebug(debug);
+        }
         setDictating(false);
         setMessage("Pasted");
       } else {
@@ -221,6 +245,20 @@ function App() {
             />
           </label>
 
+          <label className="switch-row">
+            <span>
+              <strong>Bangla debug</strong>
+              <small>Raw, cleaned, final</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={config.banglaDebugEnabled}
+              onChange={(event) =>
+                save({ ...config, banglaDebugEnabled: event.target.checked })
+              }
+            />
+          </label>
+
           <div className="two-fields">
             <label className="field">
               <span>Ollama URL</span>
@@ -291,6 +329,21 @@ function App() {
             </div>
           </div>
         </section>
+
+        {config.language === "bn" && config.banglaDebugEnabled && banglaDebug && (
+          <section className="panel span-two">
+            <PanelTitle icon={<Bug size={18} />} title="Bangla Debug" />
+            <div className="debug-grid">
+              <DebugBlock label="Raw Whisper" value={banglaDebug.raw} />
+              <DebugBlock label="Ollama cleaned" value={banglaDebug.cleaned} />
+              <DebugBlock label="Final paste" value={banglaDebug.finalText} />
+            </div>
+            <div className="debug-meta">
+              <span>{banglaDebug.cleanupUsed ? "Cleanup accepted" : "Raw fallback used"}</span>
+              {banglaDebug.fallbackReason && <span>{banglaDebug.fallbackReason}</span>}
+            </div>
+          </section>
+        )}
       </div>
     </main>
   );
@@ -318,6 +371,15 @@ function StatusPill({
     <div className={`status-pill ${active ? "active" : ""}`}>
       {icon}
       <span>{label}</span>
+    </div>
+  );
+}
+
+function DebugBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="debug-block">
+      <span>{label}</span>
+      <div>{value || "No text"}</div>
     </div>
   );
 }

@@ -33,7 +33,7 @@ impl DictationController {
         &self,
         config: &AppConfig,
         app: &AppHandle,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<cleanup::TranscriptionDebug>> {
         let (reply_tx, reply_rx) = mpsc::channel();
         self.tx
             .lock()
@@ -41,18 +41,19 @@ impl DictationController {
             .send(RecorderCommand::Stop(reply_tx))?;
         let path = reply_rx.recv()??;
         let Some(path) = path else {
-            return Ok(());
+            return Ok(None);
         };
 
         let result = async {
             let raw = transcription::transcribe_file(config, path.clone()).await?;
-            let cleaned = cleanup::clean_or_fallback(config, &raw).await?;
-            paste::paste_text(app, &cleaned).await
+            let debug = cleanup::clean_with_debug(config, &raw).await?;
+            paste::paste_text(app, &debug.final_text).await?;
+            Ok(debug)
         }
         .await;
 
         let _ = std::fs::remove_file(&path);
-        result
+        result.map(Some)
     }
 }
 
